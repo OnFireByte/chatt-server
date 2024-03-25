@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -38,6 +40,7 @@ var upgrader = websocket.Upgrader{
 type subscription struct {
 	conn           *connection
 	room           string
+	password       string // empty string means no password
 	recvUserName   string
 	senderUserName string
 }
@@ -116,21 +119,38 @@ func (c *connection) write(mt int, payload []byte) error {
 	return c.ws.WriteMessage(mt, payload)
 }
 
-func ServeWs(w http.ResponseWriter, r *http.Request) {
+func ServeWs(w http.ResponseWriter, r *http.Request, senderUserName string) {
 	ws, err := upgrader.Upgrade(w, r, nil)
-	// Get room's id from client...
-	queryValues := r.URL.Query()
-	roomName := queryValues.Get("roomName")
-	recvUserName := queryValues.Get("recvUserName")
-	senderUserName := queryValues.Get("senderUserName")
 	if err != nil {
 		log.Println(err)
 		return
 	}
+	// Get room's id from client...
+	var password string
+	queryValues := r.URL.Query()
+	roomQuery := queryValues.Get("roomName")
+	// decode escape characters
+	roomQuery, err = url.QueryUnescape(roomQuery)
+	if err != nil {
+		log.Println(err)
+
+		ws.Close()
+		return
+	}
+
+	roomSplit := strings.Split(roomQuery, ":")
+	roomName := roomSplit[0]
+	if len(roomSplit) > 1 {
+		password = roomSplit[1]
+	}
+	recvUserName := queryValues.Get("recvUserName")
+
 	c := &connection{send: make(chan []byte, 256), ws: ws}
+	log.Println("User connected", senderUserName, roomName, password)
 	s := subscription{
 		conn:           c,
 		room:           roomName,
+		password:       password,
 		recvUserName:   recvUserName,
 		senderUserName: senderUserName,
 	}

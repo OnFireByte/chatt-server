@@ -4,14 +4,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+
+	"github.com/gorilla/websocket"
 )
 
 var H = &Hub{
-	broadcast:  make(chan message),
-	register:   make(chan subscription),
-	unregister: make(chan subscription),
-	Rooms:      make(map[string]map[*connection]struct{}),
-	Users:      make(map[string]struct{}),
+	broadcast:    make(chan message),
+	register:     make(chan subscription),
+	unregister:   make(chan subscription),
+	Rooms:        make(map[string]map[*connection]struct{}),
+	Users:        make(map[string]struct{}),
+	RoomPassword: make(map[string]string),
 }
 
 // Hub maintains the set of active clients and broadcasts messages to the
@@ -19,7 +22,9 @@ type Hub struct {
 	Users map[string]struct{}
 
 	// put registered clients into the room.
-	Rooms map[string]map[*connection]struct{}
+	Rooms        map[string]map[*connection]struct{}
+	RoomPassword map[string]string
+
 	// Inbound messages from the clients.
 	broadcast chan message
 
@@ -52,7 +57,14 @@ func (h *Hub) Run() {
 			if connections == nil {
 				connections = make(map[*connection]struct{})
 				h.Rooms[roomKey] = connections
+				h.RoomPassword[roomKey] = s.password
+			} else if pw := h.RoomPassword[roomKey]; pw != "" && pw != s.password {
+				s.conn.ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseUnsupportedData, "Invalid password"))
+				close(s.conn.send)
+
+				continue
 			}
+
 			h.Rooms[roomKey][s.conn] = struct{}{}
 			h.Users[s.senderUserName] = struct{}{}
 		case s := <-h.unregister:
@@ -69,6 +81,7 @@ func (h *Hub) Run() {
 					close(s.conn.send)
 					if len(connections) == 0 {
 						delete(h.Rooms, s.room)
+						delete(h.RoomPassword, s.room)
 					}
 				}
 			}
