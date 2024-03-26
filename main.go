@@ -19,11 +19,6 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-type TokenInfo struct {
-	Name   string
-	Expire string
-}
-
 func serveDefault(w http.ResponseWriter, r *http.Request) {
 	log.Println(r.URL)
 	if r.URL.Path != "/" {
@@ -117,7 +112,7 @@ func main() {
 			return
 		}
 
-		var info TokenInfo
+		var info dto.TokenInfo
 		err = json.Unmarshal(infoBytes, &info)
 		if err != nil {
 			http.Error(w, "Invalid token", http.StatusUnauthorized)
@@ -198,7 +193,7 @@ func main() {
 			// create auth token
 			hasher := hmac.New(sha256.New, []byte(secret))
 			expires := time.Now().Add(24 * time.Hour).Format(time.RFC3339)
-			info := TokenInfo{
+			info := dto.TokenInfo{
 				Name:   user,
 				Expire: expires,
 			}
