@@ -53,8 +53,9 @@ type connection struct {
 }
 
 type msgReq struct {
-	Sender  string `json:"user"`
-	Message string `json:"message"`
+	Sender    string    `json:"user"`
+	Message   string    `json:"message"`
+	Timestamp time.Time `json:"timestamp"`
 }
 
 func (s *subscription) readPump() {
@@ -79,10 +80,11 @@ func (s *subscription) readPump() {
 		}
 
 		m := message{
-			Room:   s.room,
-			User:   s.recvUserName,
-			Sender: s.senderUserName,
-			Data:   string(msg),
+			Room:      s.room,
+			User:      s.recvUserName,
+			Sender:    s.senderUserName,
+			Data:      string(msg),
+			Timestamp: time.Now(),
 		}
 		H.broadcast <- m
 	}

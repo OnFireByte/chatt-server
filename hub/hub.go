@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -37,10 +38,11 @@ type Hub struct {
 
 type message struct {
 	// Room and User are mutually exclusive
-	Room   string `json:"-"` // room that will receive the message
-	User   string `json:"-"` // user that will receive the message
-	Sender string `json:"user"`
-	Data   string `json:"data"`
+	Room      string    `json:"-"` // room that will receive the message
+	User      string    `json:"-"` // user that will receive the message
+	Sender    string    `json:"user"`
+	Data      string    `json:"data"`
+	Timestamp time.Time `json:"timestamp"`
 }
 
 func (h *Hub) Run() {

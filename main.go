@@ -134,114 +134,111 @@ func main() {
 
 		hub.ServeWs(w, r, info.Name)
 	})
-	http.HandleFunc("/users", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodGet:
-			users := make([]string, 0, len(H.Users))
-			for user := range H.Users {
-				users = append(users, user)
+	http.HandleFunc("GET /users", func(w http.ResponseWriter, r *http.Request) {
+		users := make([]string, 0, len(H.Users))
+		for user := range H.Users {
+			users = append(users, user)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(users)
+	})
+
+	http.HandleFunc("POST /users", func(w http.ResponseWriter, r *http.Request) {
+		user := r.URL.Query().Get("user")
+		password := r.URL.Query().Get("password")
+		if user == "" {
+			http.Error(w, "User is required", http.StatusBadRequest)
+			return
+		}
+
+		err := DB.Update(func(tx *bbolt.Tx) error {
+			b := tx.Bucket([]byte("users"))
+			if b == nil {
+				return errors.New("users bucket not found")
 			}
 
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(users)
-		case http.MethodPost:
-			user := r.URL.Query().Get("user")
-			password := r.URL.Query().Get("password")
-			if user == "" {
-				http.Error(w, "User is required", http.StatusBadRequest)
-				return
-			}
-
-			err := DB.Update(func(tx *bbolt.Tx) error {
-				b := tx.Bucket([]byte("users"))
-				if b == nil {
-					return errors.New("users bucket not found")
+			val := b.Get([]byte(user))
+			if val == nil {
+				hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+				if err != nil {
+					return err
 				}
-
-				val := b.Get([]byte(user))
-				if val == nil {
-					hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-					if err != nil {
-						return err
-					}
-					err = b.Put([]byte(user), hashed)
-					if err != nil {
-						return err
-					}
-
-					return nil
-				} else {
-					err = bcrypt.CompareHashAndPassword(val, []byte(password))
-					if err != nil {
-						return InvalidPassword
-					}
+				err = b.Put([]byte(user), hashed)
+				if err != nil {
+					return err
 				}
 
 				return nil
-			})
-			if err != nil {
-				if errors.Is(err, InvalidPassword) {
-					http.Error(w, "Invalid password", http.StatusUnauthorized)
-					return
-				}
-
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-
-			// create auth token
-			hasher := hmac.New(sha256.New, []byte(secret))
-			expires := time.Now().Add(24 * time.Hour).Format(time.RFC3339)
-			info := dto.TokenInfo{
-				Name:   user,
-				Expire: expires,
-			}
-			var infoBytes []byte
-			infoBytes, err = json.Marshal(info)
-			if err != nil {
-				log.Println(err)
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			b64Info := base64.URLEncoding.EncodeToString([]byte(infoBytes))
-			_, err = hasher.Write([]byte(infoBytes))
-			if err != nil {
-				log.Println(err)
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-
-			hashedToken := hasher.Sum(nil)
-			b64Token := base64.URLEncoding.EncodeToString(hashedToken)
-
-			token := b64Info + "." + b64Token
-
-			H.Users[user] = struct{}{}
-			w.WriteHeader(http.StatusOK)
-
-			w.Write([]byte(token))
-		}
-	})
-
-	http.HandleFunc("/rooms", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodGet:
-			rooms := make([]dto.Room, 0, len(H.Rooms))
-			for room := range H.Rooms {
-				if room[:5] == "room:" {
-					rooms = append(rooms, dto.Room{
-						Name: room[5:],
-						Lock: H.RoomPassword[room] != "",
-					})
+			} else {
+				err = bcrypt.CompareHashAndPassword(val, []byte(password))
+				if err != nil {
+					return InvalidPassword
 				}
 			}
 
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(rooms)
+			return nil
+		})
+		if err != nil {
+			if errors.Is(err, InvalidPassword) {
+				http.Error(w, "Invalid password", http.StatusUnauthorized)
+				return
+			}
+
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
+
+		// create auth token
+		hasher := hmac.New(sha256.New, []byte(secret))
+		expires := time.Now().Add(24 * time.Hour).Format(time.RFC3339)
+		info := dto.TokenInfo{
+			Name:   user,
+			Expire: expires,
+		}
+		var infoBytes []byte
+		infoBytes, err = json.Marshal(info)
+		if err != nil {
+			log.Println(err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		b64Info := base64.URLEncoding.EncodeToString([]byte(infoBytes))
+		_, err = hasher.Write([]byte(infoBytes))
+		if err != nil {
+			log.Println(err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		hashedToken := hasher.Sum(nil)
+		b64Token := base64.URLEncoding.EncodeToString(hashedToken)
+
+		token := b64Info + "." + b64Token
+
+		H.Users[user] = struct{}{}
+		w.WriteHeader(http.StatusOK)
+
+		w.Write([]byte(token))
 	})
+
+	http.HandleFunc("GET /rooms", func(w http.ResponseWriter, r *http.Request) {
+		rooms := make([]dto.Room, 0, len(H.Rooms))
+		for room := range H.Rooms {
+			if room[:5] == "room:" {
+				rooms = append(rooms, dto.Room{
+					Name: room[5:],
+					Lock: H.RoomPassword[room] != "",
+				})
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(rooms)
+	})
+
 	// Listerning on port :8080...
 	log.Println("Listening on port :42069")
 	log.Fatal(http.ListenAndServe(":42069", nil))
